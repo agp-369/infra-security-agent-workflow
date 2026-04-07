@@ -1,8 +1,7 @@
 # Virtual Environment
 myenv/
-env/venv/
 venv/
-ENV/
+.venv/
 
 # Python Cache
 __pycache__/
@@ -17,7 +16,6 @@ __pycache__/
 # Local Dev Folders
 op/
 .pytest_cache/
-.ipynb_checkpoints/
 
 # OS Files
 .DS_Store
