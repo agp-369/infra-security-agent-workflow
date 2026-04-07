@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import textwrap
 from typing import List, Optional
 
 from dotenv import load_dotenv
@@ -10,10 +11,23 @@ from env.models import SecurityAction, ActionType
 
 load_dotenv()
 
-# Configuration (Strictly following Meta Submission Checklist Syntax)
+# Configuration (Strict Checklist Compliance)
 API_BASE_URL = os.getenv("API_BASE_URL", "https://api.groq.com/openai/v1") 
 MODEL_NAME = os.getenv("MODEL_NAME", "llama-3.1-8b-instant") 
-HF_TOKEN = os.getenv("HF_TOKEN") # No default here as per checklist
+HF_TOKEN = os.getenv("HF_TOKEN") # No default as per checklist
+
+# Meta Logging Functions (Strict key=value format)
+def log_start(task: str, env: str, model: str) -> None:
+    print(f"[START] task={task} env={env} model={model}", flush=True)
+
+def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
+    error_val = error if error else "null"
+    done_val = str(done).lower()
+    print(f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}", flush=True)
+
+def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
 
 def repair_json(text: str) -> dict:
     """Extracts and repairs JSON from LLM response."""
@@ -23,45 +37,42 @@ def repair_json(text: str) -> dict:
         val = str(data.get("action_type", "")).lower()
         if "block" in val: data["action_type"] = "block_ip"
         elif "inspect" in val or "investigat" in val: data["action_type"] = "inspect_ip"
-        elif "quarantine" in val: data["action_type"] = "quarantine_file"
         elif "noop" in val or "none" in val: data["action_type"] = "noop"
         return data
     except Exception:
         return {"action_type": "noop", "target": None, "reason": "System repair"}
 
 def main():
-    # Use OpenAI client as strictly required
     client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN or "mock_key")
-    
-    # Starting with a standard benchmark task
     env = SecurityLogEnv(task_id="workflow_credential_stuffing")
     
-    # [START] MANDATORY LOG FORMAT
-    print(f'[START] {json.dumps({"task_id": env.task_id})}')
+    benchmark_name = "infra-security-agent"
+    log_start(task=env.task_id, env=benchmark_name, model=MODEL_NAME)
     
     observation = env.reset()
     done = False
-    total_reward = 0.0
+    rewards_history: List[float] = []
     step_count = 0
-    history: List[str] = []
+    history_text: List[str] = []
 
-    while not done and step_count < 20:
-        step_count += 1
-        logs_str = "\n".join([f"[{l.source_ip}] -> {l.message}" for l in observation.new_logs])
-        
-        system_prompt = (
-            "You are a Senior Security Analyst. Use 'inspect_ip' or 'block_ip'.\n"
-            "Return valid JSON: {\"action_type\": \"...\", \"target\": \"...\", \"reason\": \"...\"}"
-        )
-        
-        user_prompt = (
-            f"### CONTEXT: STEP {step_count}/20\n"
-            f"### INVESTIGATION: {observation.inspection_result}\n"
-            f"### HISTORY:\n{chr(10).join(history[-3:])}\n\n"
-            f"### LIVE LOGS:\n{logs_str}\n"
-        )
+    try:
+        while not done and step_count < 20:
+            step_count += 1
+            logs_str = "\n".join([f"[{l.source_ip}] -> {l.message}" for l in observation.new_logs])
+            
+            system_prompt = (
+                "You are a Senior Security Analyst. MISSION: Protect Infrastructure Health.\n"
+                "Use 'inspect_ip' or 'block_ip'. Return valid JSON.\n"
+                "JSON: {\"action_type\": \"...\", \"target\": \"...\", \"reason\": \"...\"}"
+            )
+            
+            user_prompt = (
+                f"### CONTEXT: STEP {step_count}/20\n"
+                f"### INVESTIGATION: {observation.inspection_result}\n"
+                f"### HISTORY:\n{chr(10).join(history_text[-3:])}\n\n"
+                f"### LIVE LOGS:\n{logs_str}\n"
+            )
 
-        try:
             if HF_TOKEN:
                 completion = client.chat.completions.create(
                     model=MODEL_NAME, 
@@ -70,10 +81,10 @@ def main():
                 )
                 action_data = repair_json(completion.choices[0].message.content)
             else:
-                # Fallback for local testing without key
+                # Mock logic for local testing
                 target = None
                 for l in observation.new_logs:
-                    if "STUFFING" in l.message or "High freq" in l.message: target = l.source_ip
+                    if "STUFFING" in l.message: target = l.source_ip
                 action_data = {"action_type": "block_ip", "target": target, "reason": "Mock"} if target else {"action_type": "noop", "target": None, "reason": "Mock"}
 
             action = SecurityAction(**action_data)
@@ -81,33 +92,21 @@ def main():
             
             reward = float(getattr(observation, "reward", 0.0) or 0.0)
             done = getattr(observation, "done", False)
-            total_reward += reward
+            rewards_history.append(reward)
             
-            # [STEP] MANDATORY LOG FORMAT
-            step_log = {
-                "step": step_count,
-                "action": action.action_type,
-                "target": action.target,
-                "reward": reward,
-                "done": done
-            }
-            print(f'[STEP] {json.dumps(step_log)}')
+            # [STEP] Mandatory Log
+            log_step(step=step_count, action=action.action_type, reward=reward, done=done, error=None)
             
-            history.append(f"Step {step_count}: {action.action_type} on {action.target}. Reward: {reward}")
+            history_text.append(f"Step {step_count}: {action.action_type} on {action.target}. Reward: {reward}")
 
             if done: break
 
-        except Exception as e:
-            # Prevent hard crash, emit end log with current progress
-            break
+        # Final Grade and Success
+        final_grade = env.grade()
+        log_end(success=(final_grade > 0.5), steps=step_count, score=final_grade, rewards=rewards_history)
 
-    # [END] MANDATORY LOG FORMAT
-    end_log = {
-        "total_reward": total_reward,
-        "grade": env.grade(),
-        "status": "success" if env.grade() > 0.5 else "failed"
-    }
-    print(f'[END] {json.dumps(end_log)}')
+    except Exception as e:
+        log_end(success=False, steps=step_count, score=0.0, rewards=rewards_history)
 
 if __name__ == "__main__":
     main()
