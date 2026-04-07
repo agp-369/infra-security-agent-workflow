@@ -11,12 +11,23 @@ from env.models import SecurityAction, ActionType
 
 load_dotenv()
 
-# Configuration (Strict Checklist Compliance)
+# --- CONFIGURATION (Strict Mirror of Meta Sample Script) ---
+API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
 API_BASE_URL = os.getenv("API_BASE_URL", "https://api.groq.com/openai/v1") 
 MODEL_NAME = os.getenv("MODEL_NAME", "llama-3.1-8b-instant") 
-HF_TOKEN = os.getenv("HF_TOKEN") # No default as per checklist
 
-# Meta Logging Functions (Strict key=value format)
+# Benchmark Variables
+TASK_NAME = os.getenv("TASK_NAME", "workflow_credential_stuffing")
+BENCHMARK = os.getenv("BENCHMARK", "infra-security-agent")
+MAX_STEPS = 20
+TEMPERATURE = 0.1
+SUCCESS_THRESHOLD = 0.5
+
+# Reward Normalization
+_MAX_REWARD_PER_STEP = 1.0
+MAX_TOTAL_REWARD = MAX_STEPS * _MAX_REWARD_PER_STEP
+
+# --- LOGGING (Strict Meta Standard) ---
 def log_start(task: str, env: str, model: str) -> None:
     print(f"[START] task={task} env={env} model={model}", flush=True)
 
@@ -43,11 +54,10 @@ def repair_json(text: str) -> dict:
         return {"action_type": "noop", "target": None, "reason": "System repair"}
 
 def main():
-    client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN or "mock_key")
-    env = SecurityLogEnv(task_id="workflow_credential_stuffing")
+    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY or "mock_key")
+    env = SecurityLogEnv(task_id=TASK_NAME)
     
-    benchmark_name = "infra-security-agent"
-    log_start(task=env.task_id, env=benchmark_name, model=MODEL_NAME)
+    log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
     
     observation = env.reset()
     done = False
@@ -55,33 +65,43 @@ def main():
     step_count = 0
     history_text: List[str] = []
 
+    # STRICT SYSTEM PROMPT (Mirroring Meta's "No-Nonsense" Style)
+    SYSTEM_PROMPT = textwrap.dedent(
+        """
+        You are a SOC Analyst. MISSION: Protect Infrastructure Health.
+        Reply with exactly one JSON object.
+        No quotes, no prefixes, no explanations. Just the JSON.
+        Required JSON Schema: {"action_type": "...", "target": "...", "reason": "..."}
+        Valid actions: block_ip, inspect_ip, noop.
+        """
+    ).strip()
+
     try:
-        while not done and step_count < 20:
-            step_count += 1
+        for step in range(1, MAX_STEPS + 1):
+            if done: break
+            step_count = step
+            
             logs_str = "\n".join([f"[{l.source_ip}] -> {l.message}" for l in observation.new_logs])
             
-            system_prompt = (
-                "You are a Senior Security Analyst. MISSION: Protect Infrastructure Health.\n"
-                "Use 'inspect_ip' or 'block_ip'. Return valid JSON.\n"
-                "JSON: {\"action_type\": \"...\", \"target\": \"...\", \"reason\": \"...\"}"
-            )
-            
-            user_prompt = (
-                f"### CONTEXT: STEP {step_count}/20\n"
-                f"### INVESTIGATION: {observation.inspection_result}\n"
-                f"### HISTORY:\n{chr(10).join(history_text[-3:])}\n\n"
-                f"### LIVE LOGS:\n{logs_str}\n"
-            )
+            user_prompt = textwrap.dedent(
+                f"""
+                Step: {step}
+                Investigation Data: {observation.inspection_result}
+                History: {", ".join(history_text[-3:]) if history_text else "None"}
+                Logs:
+                {logs_str}
+                Return your next action JSON.
+                """
+            ).strip()
 
-            if HF_TOKEN:
+            if API_KEY:
                 completion = client.chat.completions.create(
                     model=MODEL_NAME, 
-                    messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-                    temperature=0.1 
+                    messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user_prompt}],
+                    temperature=TEMPERATURE 
                 )
                 action_data = repair_json(completion.choices[0].message.content)
             else:
-                # Mock logic for local testing
                 target = None
                 for l in observation.new_logs:
                     if "STUFFING" in l.message: target = l.source_ip
@@ -94,18 +114,14 @@ def main():
             done = getattr(observation, "done", False)
             rewards_history.append(reward)
             
-            # [STEP] Mandatory Log
-            log_step(step=step_count, action=action.action_type, reward=reward, done=done, error=None)
-            
-            history_text.append(f"Step {step_count}: {action.action_type} on {action.target}. Reward: {reward}")
+            log_step(step=step, action=action.action_type, reward=reward, done=done, error=None)
+            history_text.append(f"{action.action_type}({action.target})")
 
-            if done: break
+        final_score = env.grade()
+        success = final_score >= SUCCESS_THRESHOLD
+        log_end(success=success, steps=step_count, score=final_score, rewards=rewards_history)
 
-        # Final Grade and Success
-        final_grade = env.grade()
-        log_end(success=(final_grade > 0.5), steps=step_count, score=final_grade, rewards=rewards_history)
-
-    except Exception as e:
+    except Exception:
         log_end(success=False, steps=step_count, score=0.0, rewards=rewards_history)
 
 if __name__ == "__main__":

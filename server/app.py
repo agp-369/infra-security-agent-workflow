@@ -1,3 +1,9 @@
+import sys
+import os
+
+# Ensure the root directory is in the path so imports from 'env' work
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from openenv.core.env_server.http_server import create_app
 from env.security_env import SecurityLogEnv
 from env.models import SecurityAction, SecurityObservation

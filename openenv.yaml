@@ -1,7 +1,7 @@
 spec_version: 1
 name: infra-security-agent
 version: "1.0.0"
-entry_point: "env.security_env:SecurityLogEnv"
+entry_point: "server.app:app"
 type: space
 runtime: fastapi
 port: 7860
