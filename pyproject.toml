@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "infra-security-agent"
+version = "1.0.0"
+description = "Professional Infrastructure Security Agent Workflow for Meta Hackathon"
+requires-python = ">=3.10"
+dependencies = [
+    "openenv-core[core]>=0.2.0",
+    "gymnasium",
+    "pydantic",
+    "numpy",
+    "pandas",
+    "openai",
+    "python-dotenv",
+    "fastapi",
+    "uvicorn",
+    "requests"
+]
+
+[tool.setuptools]
+packages = ["env"]
+py_modules = ["client", "server"]

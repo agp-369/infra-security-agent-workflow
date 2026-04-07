@@ -1,0 +1,10 @@
+openenv-core
+gymnasium
+pydantic
+openai
+numpy
+pandas
+python-dotenv
+fastapi
+uvicorn
+requests

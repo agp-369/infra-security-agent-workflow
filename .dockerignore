@@ -1,0 +1,14 @@
+.env
+myenv/
+venv/
+__pycache__/
+*.pyc
+.git/
+test_judge.py
+validate.py
+sample_inference_script.py
+sample_inference_script.txt
+Detailed_Requirements.txt
+Evaluation_Criteria.txt
+Judging.txt
+pre-submission_checklist.txt
