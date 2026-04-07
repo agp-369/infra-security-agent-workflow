@@ -34,11 +34,13 @@ def test_remote():
     # 3. SPEC CHECK
     print("\n[3/3] Checking Model Spec Compliance ...")
     try:
-        # Step into the environment
+        # Step into the environment (wrapped action)
         payload = {
-            "action_type": "noop",
-            "target": None,
-            "reason": "validation test"
+            "action": {
+                "action_type": "noop",
+                "target": None,
+                "reason": "validation test"
+            }
         }
         r = requests.post(f"{url}/step", json=payload)
         if r.status_code == 200:
