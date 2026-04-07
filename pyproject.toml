@@ -20,6 +20,9 @@ dependencies = [
     "requests"
 ]
 
+[project.scripts]
+server = "server:app"
+
 [tool.setuptools]
 packages = ["env"]
 py_modules = ["client", "server"]

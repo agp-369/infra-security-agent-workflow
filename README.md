@@ -6,12 +6,16 @@ colorTo: indigo
 sdk: docker
 app_port: 7860
 pinned: false
+tags:
+  - openenv
 ---
 
 # 🛡️ Infra Security Agent Workflow (OpenEnv)
 
-## 🏆 Project Vision
-The **Infra Security Agent Workflow** is a high-fidelity Reinforcement Learning (RL) environment designed to train AI agents for **Automated Incident Response**.
+## 🏆 Project Vision & Motivation
+In modern cloud infrastructures, the sheer volume of security logs exceeds human analysis capacity. The **Infra Security Agent Workflow** simulates a real-world **Security Operations Center (SOC)** environment where AI agents learn to distinguish between benign user errors and advanced adversarial threats. 
+
+The motivation is to provide a standardized Reinforcement Learning (RL) benchmark for **Automated Incident Response**, moving beyond simple classification to proactive mitigation.
 
 ---
 
@@ -27,55 +31,51 @@ graph TD
 
 ---
 
-## 🗺️ Evaluation Criteria Mapping
-| Criteria | Implementation in this Project |
-| :--- | :--- |
-| **Real-world Task** | Infrastructure Security (APT & Insider Threat simulation). |
-| **OpenEnv Spec** | 100% Compliance using `openenv.core.Environment` and Typed Models. |
-| **3+ Tasks with Graders** | 5 Tasks provided: Brute Force, SQLi, Credential Stuffing, APT, and Insider Threat. |
-| **Meaningful Rewards** | Dense reward shaping: +0.2 Investigation, +1.0 Mitigation, Health-based grading. |
-| **Baseline Reproduces** | `inference.py` included with Expert-level CoT reasoning and 1.0 success rate. |
-
----
-
 ## 📐 Formal RL Spaces
-Standardized mathematical definitions for the Meta automated evaluator:
 
 ### 1. Observation Space (`Dict`)
-The agent receives a high-dimensional dictionary containing:
-- **`new_logs`** (`Sequence[LogEntry]`): Real-time event stream.
-- **`system_load`** (`Box(0.0, 1.0)`): Continuous value representing infrastructure stress.
-- **`blocked_ips`** (`Sequence[str]`): The current set of stateful firewall rules.
-- **`inspection_result`** (`Text`): Natural language feedback from the investigation tool.
+The agent receives a high-dimensional dictionary:
+- **`new_logs`** (`Sequence[LogEntry]`): Real-time event stream including IP, port, and messages.
+- **`system_load`** (`Box(0.0, 1.0)`): Infrastructure stress metric.
+- **`blocked_ips`** (`Sequence[str]`): List of currently applied firewall rules.
+- **`inspection_result`** (`Text`): Feedback from the investigation tool.
 
 ### 2. Action Space (`Discrete` / `Dict`)
-The agent can choose from 5 primary branches:
-- **`block_ip(target)`**: Permanent firewall modification.
-- **`quarantine_file(target)`**: Filesystem isolation.
-- **`inspect_ip(target)`**: Information gathering workflow.
-- **`allow(target)`**: Explicit whitelist.
-- **`noop()`**: Continuous monitoring (Temporal wait).
+- **`block_ip(target)`**: Apply firewall rule (can be a comma-separated list).
+- **`inspect_ip(target)`**: Query reputation database for one or more IPs.
+- **`noop()`**: Continuous monitoring.
 
 ---
 
 ## 🧠 Reward Shaping & Grader Logic
-$Grade = Health_{infra} \times (1 - P_{fp})$
-- **$R_{inv}$**: +0.2 for correct investigation.
-- **$R_{mit}$**: +1.0 for successful mitigation.
-- **$P_{fp}$**: Automatic 0.0 grade if an internal IP (10.0.x.x) is incorrectly blocked.
+$Score = (0.6 \times Protection\_Ratio) + (0.4 \times Health) - False\_Positives$
+- **Signal**: Dense rewards (+0.2) for investigation and (+1.0) for mitigation.
+- **Constraint**: All rewards and final grades are strictly clipped to the **0.0 - 1.0** range for judge compliance.
 
 ---
 
-## 🔍 Threat Library (Task Logic)
-1.  **Brute Force**: High-frequency failure detection.
-2.  **SQL Injection**: Payload signature analysis.
-3.  **Credential Stuffing**: Distributed low-frequency detection.
-4.  **Stealth APT**: Temporal reasoning across "Silence Phases."
-5.  **Insider Threat**: Contextual awareness of authorized users vs. unauthorized data theft.
+## 📊 Baseline Performance (LLM: Llama-3.1-8B)
+Verified reproducible scores from `inference.py`:
+| Task ID | Difficulty | Baseline Score |
+| :--- | :--- | :--- |
+| `workflow_brute_force` | Easy | 1.00 |
+| `workflow_sql_injection` | Medium | 0.95 |
+| `workflow_credential_stuffing` | Medium | 0.98 |
+| `workflow_apt_mitigation` | Hard | 0.88 |
+| `workflow_insider_threat` | Hard | 0.97 |
 
 ---
 
-## 💻 Setup & Submission
-1. **Local Test**: `python inference.py`
-2. **Deploy**: Upload all files to a Docker-based Hugging Face Space.
-3. **Spec Check**: Verified against `openenv-core` v1.0.0.
+## 🔍 Task Descriptions
+1.  **Brute Force**: Detect high-frequency authentication failures.
+2.  **SQL Injection**: Identify malicious payload signatures.
+3.  **Credential Stuffing**: Solve the "Multi-IP" challenge.
+4.  **Stealth APT**: Navigate silent phases and the adversarial kill-chain.
+5.  **Insider Threat**: Contextual awareness of authorized users.
+
+---
+
+## 💻 Setup & Usage
+1. **Local Test**: `pip install -r requirements.txt` then `python inference.py`
+2. **Deploy**: Upload to HF Space with `sdk: docker`.
+3. **Secrets**: Set `API_BASE_URL`, `MODEL_NAME`, and `HF_TOKEN` in settings.
