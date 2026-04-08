@@ -13,6 +13,13 @@ __pycache__/
 .env
 .env.example
 
+# Testing & Local Artifacts
+validate-submission.sh
+task_sweep.py
+ultimate_validator.py
+pre_validator.py
+=0.2.0
+
 # Local Dev Folders
 op/
 .pytest_cache/
