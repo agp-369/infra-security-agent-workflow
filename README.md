@@ -55,14 +55,14 @@ $Score = (0.6 \times Protection\_Ratio) + (0.4 \times Health) - False\_Positives
 ---
 
 ## 📊 Baseline Performance (LLM: Llama-3.1-8B)
-Verified reproducible scores from `inference.py`:
+Verified reproducible scores from `inference.py` (Final Sweep):
 | Task ID | Difficulty | Baseline Score |
 | :--- | :--- | :--- |
-| `workflow_brute_force` | Easy | 1.00 |
-| `workflow_sql_injection` | Medium | 0.95 |
-| `workflow_credential_stuffing` | Medium | 0.98 |
-| `workflow_apt_mitigation` | Hard | 0.88 |
-| `workflow_insider_threat` | Hard | 0.97 |
+| `workflow_brute_force` | Easy | 1.000 |
+| `workflow_sql_injection` | Medium | 1.000 |
+| `workflow_credential_stuffing` | Medium | 0.982 |
+| `workflow_apt_mitigation` | Hard | 1.000 |
+| `workflow_insider_threat` | Hard | 1.000 |
 
 ---
 

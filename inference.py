@@ -54,9 +54,11 @@ def repair_json(text: str) -> dict:
         return {"action_type": "noop", "target": None, "reason": "System repair"}
 
 def main():
-    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY or "mock_key")
-    env = SecurityLogEnv(task_id=TASK_NAME)
+    # Use HF_TOKEN as first priority for Meta Compliance
+    final_api_key = os.getenv("HF_TOKEN") or API_KEY
+    client = OpenAI(base_url=API_BASE_URL, api_key=final_api_key or "mock_key")
     
+    env = SecurityLogEnv(task_id=TASK_NAME)
     log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
     
     observation = env.reset()
@@ -65,7 +67,6 @@ def main():
     step_count = 0
     history_text: List[str] = []
 
-    # STRICT SYSTEM PROMPT (Mirroring Meta's "No-Nonsense" Style)
     SYSTEM_PROMPT = textwrap.dedent(
         """
         You are a SOC Analyst. MISSION: Protect Infrastructure Health.
@@ -94,7 +95,8 @@ def main():
                 """
             ).strip()
 
-            if API_KEY:
+            # Execute LLM or Fallback to Signature Matcher
+            if final_api_key and "mock_key" not in final_api_key:
                 completion = client.chat.completions.create(
                     model=MODEL_NAME, 
                     messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user_prompt}],
@@ -102,10 +104,18 @@ def main():
                 )
                 action_data = repair_json(completion.choices[0].message.content)
             else:
+                # ADVANCED SIGNATURE MATCHER (Handles all 5 Tasks)
                 target = None
+                threat_keywords = ["STUFFING", "SQL", "SSH", "DATA_EXFILTRATION", "PROBE", "Pivot"]
                 for l in observation.new_logs:
-                    if "STUFFING" in l.message: target = l.source_ip
-                action_data = {"action_type": "block_ip", "target": target, "reason": "Mock"} if target else {"action_type": "noop", "target": None, "reason": "Mock"}
+                    if any(k in l.message.upper() for k in threat_keywords):
+                        target = l.source_ip
+                        break
+                
+                if target and target not in observation.blocked_ips:
+                    action_data = {"action_type": "block_ip", "target": target, "reason": "Signature Match"}
+                else:
+                    action_data = {"action_type": "noop", "target": None, "reason": "Monitoring"}
 
             action = SecurityAction(**action_data)
             observation = env.step(action)
@@ -117,11 +127,12 @@ def main():
             log_step(step=step, action=action.action_type, reward=reward, done=done, error=None)
             history_text.append(f"{action.action_type}({action.target})")
 
+        # Final Evaluation
         final_score = env.grade()
         success = final_score >= SUCCESS_THRESHOLD
         log_end(success=success, steps=step_count, score=final_score, rewards=rewards_history)
 
-    except Exception:
+    except Exception as e:
         log_end(success=False, steps=step_count, score=0.0, rewards=rewards_history)
 
 if __name__ == "__main__":
