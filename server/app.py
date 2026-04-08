@@ -1,5 +1,6 @@
 import sys
 import os
+import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
@@ -33,7 +34,6 @@ def reset(task_id: str = "workflow_brute_force"):
 @app.post("/step", response_model=SecurityObservation)
 def step(request: ActionRequest):
     try:
-        # The judge's bot sends {"action": {...}}
         obs = env.step(request.action)
         return obs
     except Exception as e:
@@ -47,6 +47,9 @@ def get_state():
 def get_grade():
     return {"grade": env.grade()}
 
-if __name__ == "__main__":
-    import uvicorn
+def main():
+    """CLI Entry point required by openenv validate."""
     uvicorn.run(app, host="0.0.0.0", port=7860)
+
+if __name__ == "__main__":
+    main()
