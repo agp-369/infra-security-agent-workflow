@@ -14,7 +14,7 @@ from env.models import (
 class SecurityLogEnv(Environment[SecurityAction, SecurityObservation, SecurityState]):
     """
     Expert-Grade Infrastructure Security RL Environment.
-    Stabilized for 100% Judge Compliance.
+    STRICT COMPLIANCE VERSION: Scores strictly between 0.0 and 1.0.
     """
 
     def __init__(self, task_id: str = "workflow_brute_force"):
@@ -67,7 +67,6 @@ class SecurityLogEnv(Environment[SecurityAction, SecurityObservation, SecuritySt
             for t in targets:
                 self.blocked_ips.add(t)
 
-        # STABILIZED DAMAGE (0.015 per attacker per turn)
         if self.is_attack_active:
             active_threats = [a for a in self.attackers if a not in self.blocked_ips]
             if active_threats:
@@ -76,12 +75,17 @@ class SecurityLogEnv(Environment[SecurityAction, SecurityObservation, SecuritySt
             else:
                 self.is_attack_active = False 
 
+            if self.task_id == "workflow_apt_mitigation":
+                if 5 < self.current_step <= 8: self.chain_index = 1 
+                elif self.current_step > 8: self.chain_index = 2 
+
         reward = self._calculate_reward(action, targets)
-        # Ensure done is only true at max steps or all threats neutralized
         done = self.current_step >= self.max_steps or not self.is_attack_active or self.health <= 0
         
         obs = self._get_observation()
-        obs.reward = float(max(0.0, min(1.0, reward)))
+        
+        # Meta Strict Requirement: Reward must be (0, 1)
+        obs.reward = float(max(0.01, min(0.99, reward)))
         obs.done = done
         obs.inspection_result = " | ".join(inspections) if inspections else None
         
@@ -108,24 +112,24 @@ class SecurityLogEnv(Environment[SecurityAction, SecurityObservation, SecuritySt
         print("-" * 40)
 
     def grade(self) -> float:
-        """Formal Grader Score (0.0 - 1.0) with partial progress support."""
-        if self.health <= 0: return 0.0
-        
-        # 1. Protection Score (Ratio of attackers blocked)
+        """Formal Grader Score strictly within (0.0, 1.0)."""
         blocked_count = len([a for a in self.attackers if a in self.blocked_ips])
         protection_score = blocked_count / len(self.attackers)
         
-        # 2. Penalty for False Positives
         false_positives = len([ip for ip in self.blocked_ips if ip not in self.attackers])
         fp_penalty = false_positives * 0.2
         
-        # 3. Final Calculation: (60% Protection + 40% Health) - FP Penalty
-        final_score = (0.6 * protection_score) + (0.4 * self.health) - fp_penalty
-        return float(max(0.0, min(1.0, final_score)))
+        # Base math
+        raw_score = (0.6 * protection_score) + (0.4 * self.health) - fp_penalty
+        
+        # Final Squish to strictly between 0 and 1
+        return float(max(0.01, min(0.99, raw_score)))
 
     def _get_observation(self) -> SecurityObservation:
         new_logs = []
         base_logs = 20
+        if self.task_id == "workflow_brute_force": base_logs += (self.current_step * 5)
+        
         num_logs = random.randint(base_logs, base_logs + 10)
         for _ in range(num_logs):
             rand = random.random()
@@ -157,12 +161,14 @@ class SecurityLogEnv(Environment[SecurityAction, SecurityObservation, SecuritySt
         return "APT_PROBE_DETECTED."
 
     def _calculate_reward(self, action: SecurityAction, targets: List[str]) -> float:
+        # Penalty still maps to low but non-zero score
         for t in targets:
             if action.action_type == ActionType.BLOCK_IP and t.startswith("10.0.") and t not in self.attackers:
-                return 0.0 
+                return 0.05 
+            
         hit_count = len([t for t in targets if t in self.attackers])
         if action.action_type == ActionType.BLOCK_IP and hit_count > 0:
-            return 1.0 * (hit_count / len(self.attackers))
+            return 0.95 * (hit_count / len(self.attackers))
         if action.action_type == ActionType.INSPECT_IP and hit_count > 0:
             return 0.2
-        return 0.0
+        return 0.05
