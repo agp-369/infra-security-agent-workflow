@@ -24,8 +24,8 @@ class SecurityLogEnv(Environment[SecurityAction, SecurityObservation, SecuritySt
         self.current_step = 0
         self.blocked_ips = set()
         self.health = 1.0
-        self.attackers = [] 
-        self.benign_user = f"10.0.2.{random.randint(100, 254)}"
+        self.attackers = ["192.168.1.1"] # Safety Default
+        self.benign_user = "10.0.2.1" # Safety Default
         self.is_attack_active = False
         self.kill_chain = ["Recon", "Access", "Lateral", "Exfil"]
         self.chain_index = 0
@@ -39,6 +39,9 @@ class SecurityLogEnv(Environment[SecurityAction, SecurityObservation, SecuritySt
         self.health = 1.0
         self.chain_index = 0
         self.inspection_history = set()
+        
+        # Scenario Initialization for all 5 tasks
+        self.benign_user = f"10.0.2.{random.randint(100, 254)}"
         
         if self.task_id == "workflow_credential_stuffing":
             self.attackers = [f"192.168.1.{random.randint(10, 99)}" for _ in range(3)]
@@ -71,6 +74,8 @@ class SecurityLogEnv(Environment[SecurityAction, SecurityObservation, SecuritySt
             active_threats = [a for a in self.attackers if a not in self.blocked_ips]
             if active_threats:
                 damage = 0.015 * len(active_threats)
+                if self.task_id == "workflow_brute_force":
+                    damage *= (1 + (self.current_step // 5))
                 self.health -= damage
             else:
                 self.is_attack_active = False 
@@ -83,8 +88,6 @@ class SecurityLogEnv(Environment[SecurityAction, SecurityObservation, SecuritySt
         done = self.current_step >= self.max_steps or not self.is_attack_active or self.health <= 0
         
         obs = self._get_observation()
-        
-        # Meta Strict Requirement: Reward must be (0, 1)
         obs.reward = float(max(0.01, min(0.99, reward)))
         obs.done = done
         obs.inspection_result = " | ".join(inspections) if inspections else None
@@ -113,16 +116,15 @@ class SecurityLogEnv(Environment[SecurityAction, SecurityObservation, SecuritySt
 
     def grade(self) -> float:
         """Formal Grader Score strictly within (0.0, 1.0)."""
+        if not self.attackers: return 0.01
+        
         blocked_count = len([a for a in self.attackers if a in self.blocked_ips])
         protection_score = blocked_count / len(self.attackers)
         
         false_positives = len([ip for ip in self.blocked_ips if ip not in self.attackers])
         fp_penalty = false_positives * 0.2
         
-        # Base math
-        raw_score = (0.6 * protection_score) + (0.4 * self.health) - fp_penalty
-        
-        # Final Squish to strictly between 0 and 1
+        raw_score = (0.6 * protection_score) + (0.4 * max(0.0, self.health)) - fp_penalty
         return float(max(0.01, min(0.99, raw_score)))
 
     def _get_observation(self) -> SecurityObservation:
@@ -161,11 +163,9 @@ class SecurityLogEnv(Environment[SecurityAction, SecurityObservation, SecuritySt
         return "APT_PROBE_DETECTED."
 
     def _calculate_reward(self, action: SecurityAction, targets: List[str]) -> float:
-        # Penalty still maps to low but non-zero score
         for t in targets:
             if action.action_type == ActionType.BLOCK_IP and t.startswith("10.0.") and t not in self.attackers:
                 return 0.05 
-            
         hit_count = len([t for t in targets if t in self.attackers])
         if action.action_type == ActionType.BLOCK_IP and hit_count > 0:
             return 0.95 * (hit_count / len(self.attackers))
