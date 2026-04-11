@@ -12,8 +12,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
 from dotenv import load_dotenv
 from openai import OpenAI
-from infra_security_agent.server.environment import SecurityLogEnv
-from infra_security_agent.models import SecurityAction, ActionType
+from env.security_env import SecurityLogEnv
+from env.models import SecurityAction, ActionType
 
 load_dotenv()
 
@@ -29,11 +29,11 @@ def log_start(task: str, env: str, model: str) -> None:
     print(f"[START] task={task} env={env} model={model}", flush=True)
 
 def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
-    print(f"[STEP] step={step} action={action} reward={reward:.4f} done={str(done).lower()} error={error if error else 'null'}", flush=True)
+    print(f"[STEP] step={step} action={action} reward={reward:.2f} done={str(done).lower()} error={error if error else 'null'}", flush=True)
 
 def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
-    rewards_str = ",".join(f"{r:.4f}" for r in rewards)
-    print(f"[END] success={str(success).lower()} steps={steps} score={score:.4f} rewards={rewards_str}", flush=True)
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
 
 def repair_json(text: str) -> dict:
     try:
@@ -61,7 +61,6 @@ def run_task(client, task_id):
             if done: break
             steps = step
             
-            # Agent logic
             if API_KEY and "mock" not in str(API_KEY):
                 user_prompt = f"Step: {step}\nLogs:\n{obs.new_logs[:5]}\nAction JSON:"
                 completion = client.chat.completions.create(
@@ -70,27 +69,24 @@ def run_task(client, task_id):
                 )
                 action_data = repair_json(completion.choices[0].message.content)
             else:
-                # Restored Signature Matcher
+                # UPDATED SIGNATURE MATCHER (Recognizes MITRE tags)
                 target = None
-                threat_keys = ["SSH_AUTH_FAIL", "SQL_UNION", "STUFFING", "DATA_EXFILTRATION", "PROBE"]
                 for l in obs.new_logs:
-                    if any(k in l.message.upper() for k in threat_keys):
+                    if "POTENTIAL" in l.message.upper() or "ALERT" in l.message.upper():
                         target = l.source_ip
                         break
                 action_data = {"action_type": "block_ip", "target": target} if target else {"action_type": "noop"}
 
             action = SecurityAction(**action_data)
             obs = env.step(action)
-            
             reward = float(obs.reward)
             done = obs.done
             rewards.append(reward)
-            
             log_step(step=step, action=action.action_type, reward=reward, done=done, error=None)
 
         score = env.grade()
         log_end(success=(score >= SUCCESS_THRESHOLD), steps=steps, score=score, rewards=rewards)
-    except Exception as e:
+    except Exception:
         log_end(success=False, steps=steps, score=0.01, rewards=[0.01])
 
 def main():
