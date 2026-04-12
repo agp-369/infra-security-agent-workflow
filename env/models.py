@@ -1,16 +1,16 @@
+import uuid
 from enum import Enum
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 from openenv.core import Action, Observation, State
 
-
 class ActionType(str, Enum):
     BLOCK_IP = "block_ip"
     QUARANTINE_FILE = "quarantine_file"
     INSPECT_IP = "inspect_ip"
+    QUERY_LOGS = "query_logs" # Essential for Multi-Step Reasoning
     ALLOW = "allow"
     NOOP = "noop"
-
 
 class LogEntry(BaseModel):
     timestamp: str
@@ -19,28 +19,40 @@ class LogEntry(BaseModel):
     port: int
     protocol: str
     message: str
-    status_code: Optional[int] = None
-
+    severity: str = "INFO"
 
 class SecurityAction(Action):
     action_type: ActionType
-    target: Optional[str] = Field(None, description="The target IP or File.")
-    reason: Optional[str] = Field(None, description="Reasoning for the action.")
-
+    target: Optional[str] = Field(None, description="The target IP, File, or Query string.")
+    reason: Optional[str] = Field(None, description="Detailed justification for the action.")
 
 class SecurityObservation(Observation):
-    new_logs: List[LogEntry] = Field(default_factory=list)
-    active_alerts: List[str] = Field(default_factory=list)
+    # NATURAL LANGUAGE AMBIGUITY: The primary signal is now descriptive
+    alert_text: str = Field(..., description="Ambiguous natural language alert from SIEM.")
+    
+    # ACTIONABLE ERROR RECOVERY: Specific hints for the agent
+    error_context: Optional[str] = Field(None, description="Structured feedback for malformed or unauthorized actions.")
+    
+    # SYSTEM STATE
     system_load: float = 0.0
     blocked_ips: List[str] = Field(default_factory=list)
-    quarantined_files: List[str] = Field(default_factory=list)
     inspection_result: Optional[str] = None
-
+    
+    # UNCERTAINTY MODELING
+    confidence: float = Field(0.5, description="Initial confidence score of the automated alert.")
+    
+    # REVEALED DATA (Only populated after QUERY_LOGS)
+    queried_logs: List[LogEntry] = Field(default_factory=list)
 
 class SecurityState(State):
+    """The 'Hidden Truth' - Never visible to the agent."""
+    episode_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     is_under_attack: bool = False
-    attack_phase: str = "Idle" # Recon, Access, Lateral, Exfil
+    attack_phase: str = "Idle"
     attacker_ips: List[str] = Field(default_factory=list)
-    kill_chain_step: int = 0
     infrastructure_health: float = 1.0
-    threat_level: str = "LOW"
+    
+    # RESEARCH METRICS
+    dwell_time: int = 0
+    logs_unlocked: bool = False # Tracker for multi-step bottleneck
+    drift_active: bool = False # Tracker for mid-episode schema change

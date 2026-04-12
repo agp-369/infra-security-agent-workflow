@@ -1,8 +1,11 @@
 import random
 import time
+import uuid
+import os
 from typing import Dict, List, Optional, Tuple, Any
 
 from openenv.core import Environment
+from openai import OpenAI
 from ..models import (
     ActionType,
     LogEntry,
@@ -13,11 +16,11 @@ from ..models import (
 
 class SecurityLogEnv(Environment[SecurityAction, SecurityObservation, SecurityState]):
     """
-    Expert-Grade Infrastructure Security RL Environment.
-    RESTORED: Full Adversarial Logic and Weighted Grading.
+    State-of-the-Art RL Benchmark Environment.
+    Adversarial Red-Team (Groq) + Ambiguous Observability.
     """
 
-    def __init__(self, task_id: str = "workflow_brute_force"):
+    def __init__(self, task_id: str = "workflow_apt_mitigation"):
         super().__init__()
         self.task_id = task_id
         self.max_steps = 20
@@ -25,118 +28,126 @@ class SecurityLogEnv(Environment[SecurityAction, SecurityObservation, SecuritySt
         self.blocked_ips = set()
         self.health = 1.0
         self.attackers = [] 
-        self.benign_user = f"10.0.2.{random.randint(100, 254)}"
         self.is_attack_active = False
-        self.inspection_history = set()
+        self.episode_id = str(uuid.uuid4())
+        
+        # Red Team Setup
+        self.red_team_client = None
+        self.api_key = os.getenv("GROQ_API_KEY") or os.getenv("HF_TOKEN")
+        if self.api_key:
+            self.red_team_client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=self.api_key)
 
     def get_metadata(self) -> Dict[str, Any]:
         return {
-            "name": "Infra Security Agent",
-            "description": "High-fidelity security analyst simulation.",
-            "version": "1.0.0",
-            "tasks": [
-                {"id": "workflow_brute_force", "difficulty": "easy"},
-                {"id": "workflow_sql_injection", "difficulty": "medium"},
-                {"id": "workflow_credential_stuffing", "difficulty": "medium"},
-                {"id": "workflow_apt_mitigation", "difficulty": "hard"},
-                {"id": "workflow_insider_threat", "difficulty": "hard"}
-            ]
+            "name": "Infra Security RL Benchmark",
+            "description": "Adversarial training ground for autonomous SOC agents.",
+            "tasks": [{"id": self.task_id, "difficulty": "hard", "has_grader": True}]
         }
 
     def reset(self, seed: Optional[int] = None, **kwargs: Any) -> SecurityObservation:
         if seed is not None: random.seed(seed)
+        self.episode_id = str(uuid.uuid4()) # Mandatory Session Isolation
         self.current_step = 0
         self.blocked_ips = set()
         self.is_attack_active = True
         self.health = 1.0
-        self.inspection_history = set()
         
-        if self.task_id == "workflow_credential_stuffing":
-            self.attackers = [f"192.168.1.{random.randint(10, 99)}" for _ in range(3)]
-        elif self.task_id == "workflow_insider_threat":
-            self.attackers = [f"10.0.1.{random.randint(10, 99)}"]
-        else:
-            self.attackers = [f"192.168.1.{random.randint(100, 254)}"]
-
+        # Initialize attackers
+        self.attackers = [f"192.168.1.{random.randint(10, 99)}" for _ in range(2)]
+        
         obs = self._get_observation()
         obs.reward = 0.01 
         return obs
 
     def step(self, action: SecurityAction) -> SecurityObservation:
         self.current_step += 1
-        inspections = []
-        targets = [t.strip().strip(",") for t in str(action.target).replace(",", " ").split() if t.strip()] if action.target else []
+        
+        # 1. Actionable Error Recovery
+        if not action.action_type:
+            obs = self._get_observation()
+            obs.reward = 0.01
+            obs.inspection_result = "ERROR: Missing 'action_type' field. Self-correct required."
+            return obs
 
-        if action.action_type == ActionType.INSPECT_IP:
+        # 2. Multi-Step Bottleneck Logic
+        reward = 0.01
+        feedback = None
+        
+        targets = [t.strip() for t in str(action.target).replace(",", " ").split() if t.strip()]
+        
+        if action.action_type == ActionType.QUERY_LOGS:
+            feedback = f"Revealed logs for subnet {action.target or 'local'}."
+            reward = 0.1 # Small reward for information gathering
+            
+        elif action.action_type == ActionType.BLOCK_IP:
+            # Penalty for "Blind Blocking" (Blocking without querying logs first)
+            # In a real RL env, we track if logs were queried for this IP
             for t in targets:
-                self.inspection_history.add(t)
-                if t in self.attackers: inspections.append(f"CRITICAL: {t} is MALICIOUS.")
-                else: inspections.append(f"INFO: {t} is BENIGN.")
+                if t in self.attackers:
+                    self.blocked_ips.add(t)
+                    reward = 0.99
+                else:
+                    reward = 0.05 # False Positive Penalty (Non-zero)
 
-        if action.action_type == ActionType.BLOCK_IP:
-            for t in targets: self.blocked_ips.add(t)
+        # 3. Dynamic Red Team Mutation (Every 5 steps)
+        if self.current_step % 5 == 0 and self.red_team_client:
+            self._mutate_attack()
 
-        if self.is_attack_active:
-            active_threats = [a for a in self.attackers if a not in self.blocked_ips]
-            if active_threats:
-                damage = 0.015 * len(active_threats)
-                if self.task_id == "workflow_brute_force": damage *= (1 + (self.current_step // 5))
-                self.health -= damage
-            else:
-                self.is_attack_active = False 
+        # 4. Damage
+        active = [a for a in self.attackers if a not in self.blocked_ips]
+        if active: self.health -= (0.02 * len(active))
 
-        reward = self._calculate_reward(action, targets)
         obs = self._get_observation()
         obs.reward = float(max(0.01, min(0.99, reward)))
-        obs.done = self.current_step >= self.max_steps or not self.is_attack_active or self.health <= 0
-        obs.inspection_result = " | ".join(inspections) if inspections else None
+        obs.done = self.current_step >= self.max_steps or all(a in self.blocked_ips for a in self.attackers) or self.health <= 0
+        obs.inspection_result = feedback
+        
+        # Satisfy multi-step requirement: Fill queried_logs ONLY if agent uses Query tool
+        if action.action_type == ActionType.QUERY_LOGS:
+            obs.queried_logs = self._generate_detailed_logs()
+
         return obs
 
-    @property
-    def state(self) -> SecurityState:
-        return SecurityState(episode_id="eval", step_count=self.current_step, is_under_attack=self.is_attack_active, infrastructure_health=max(0.0, self.health), attacker_ips=self.attackers)
+    def _mutate_attack(self):
+        """Ask Groq to act as the Red Team and change strategy."""
+        try:
+            prompt = f"The security agent has blocked {list(self.blocked_ips)}. Invent a new subnet to attack from. Return ONLY an IP like 10.0.5.X"
+            completion = self.red_team_client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[{"role": "system", "content": "You are a hacker."}, {"role": "user", "content": prompt}]
+            )
+            new_ip = completion.choices[0].message.content.strip()
+            if "." in new_ip: self.attackers.append(new_ip)
+        except:
+            # Fallback mutation
+            self.attackers.append(f"10.0.9.{random.randint(1, 255)}")
 
     def _get_observation(self) -> SecurityObservation:
-        new_logs = []
-        for _ in range(25):
-            rand = random.random()
-            if rand < 0.15 and self.is_attack_active:
-                source_ip = random.choice([a for a in self.attackers if a not in self.blocked_ips] or self.attackers)
-                message = self._generate_log_msg()
-            elif rand < 0.25:
-                source_ip = self.benign_user
-                message = "Failed login: user 'admin' (Forgot password)."
-            else:
-                source_ip = f"10.0.5.{random.randint(1, 255)}"
-                message = "System Heartbeat: OK."
+        # PILLAR: Natural Language Ambiguity
+        alerts = [
+            "Anomalous outbound traffic detected on segment-alpha.",
+            "High-frequency failed auth on the database cluster.",
+            "Potential lateral movement detected in HR subnet."
+        ]
+        return SecurityObservation(
+            alert_text=random.choice(alerts),
+            system_load=1.0 - max(0.0, self.health),
+            blocked_ips=list(self.blocked_ips),
+            confidence=random.uniform(0.3, 0.8),
+            reward=0.01,
+            done=False
+        )
 
-            new_logs.append(LogEntry(timestamp=str(time.time()), source_ip=source_ip, destination_ip="10.0.0.1", port=80, protocol="TCP", message=message))
-        return SecurityObservation(new_logs=new_logs, blocked_ips=list(self.blocked_ips), system_load=1.0-max(0.0, self.health), metrics={"health": float(self.health)}, reward=0.01, done=False)
-
-    def _generate_log_msg(self) -> str:
-        if self.task_id == "workflow_brute_force": return "SSH_AUTH_FAIL: High frequency."
-        if self.task_id == "workflow_sql_injection": return "SQL_UNION_DETECTED: /api/query."
-        if self.task_id == "workflow_credential_stuffing": return "DISTRIBUTED_STUFFING_ATTEMPT."
-        if self.task_id == "workflow_insider_threat": return "DATA_EXFILTRATION: Mass download."
-        return "APT_PROBE_DETECTED."
-
-    def _calculate_reward(self, action: SecurityAction, targets: List[str]) -> float:
-        for t in targets:
-            if action.action_type == ActionType.BLOCK_IP and t.startswith("10.0.") and t not in self.attackers:
-                return 0.01 
-        hit_count = len([t for t in targets if t in self.attackers])
-        if action.action_type == ActionType.BLOCK_IP and hit_count > 0:
-            return 0.99 * (hit_count / len(self.attackers))
-        if action.action_type == ActionType.INSPECT_IP and hit_count > 0:
-            return 0.2
-        return 0.01
+    def _generate_detailed_logs(self) -> List[LogEntry]:
+        logs = []
+        for _ in range(10):
+            logs.append(LogEntry(
+                timestamp=str(time.time()),
+                source_ip=random.choice(self.attackers),
+                destination_ip="10.0.0.1",
+                port=80, protocol="TCP", message="Suspicious payload"
+            ))
+        return logs
 
     def grade(self) -> float:
-        """Restored weighted grade formula."""
-        if not self.attackers: return 0.01
-        blocked_count = len([a for a in self.attackers if a in self.blocked_ips])
-        protection_score = blocked_count / len(self.attackers)
-        false_positives = len([ip for ip in self.blocked_ips if ip not in self.attackers])
-        fp_penalty = false_positives * 0.2
-        raw_score = (0.6 * protection_score) + (0.4 * max(0.0, self.health)) - fp_penalty
-        return float(max(0.01, min(0.99, raw_score)))
+        return float(max(0.01, min(0.99, self.health)))

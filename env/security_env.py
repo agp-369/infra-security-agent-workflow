@@ -1,9 +1,12 @@
 import random
 import time
+import uuid
+import os
 from typing import Dict, List, Optional, Tuple, Any
 
 from openenv.core import Environment
-from env.models import (
+from openai import OpenAI
+from .models import (
     ActionType,
     LogEntry,
     SecurityAction,
@@ -13,132 +16,124 @@ from env.models import (
 
 class SecurityLogEnv(Environment[SecurityAction, SecurityObservation, SecurityState]):
     """
-    Expert-Grade Infrastructure Security RL Environment (v5.0).
-    Benchmark Edition: MITRE ATT&CK Mapping & Dwell-Time Penalties.
+    Research-Grade RL Cyber-Range (Finalist Edition).
+    Features: Dynamic Noise, MITRE ATT&CK Alignment, and Error Recovery.
     """
 
-    def __init__(self, task_id: str = "workflow_brute_force"):
+    def __init__(self, task_id: str = "workflow_apt_mitigation"):
         super().__init__()
         self.task_id = task_id
         self.max_steps = 20
-        self.current_step = 0
-        self.blocked_ips = set()
-        self.health = 1.0
-        self.attackers = [] 
-        self.benign_user = f"10.0.2.{random.randint(100, 254)}"
-        self.is_attack_active = False
-        
-        # PILLAR 1: MITRE ATT&CK Mapping
-        self.mitre_map = {
-            "workflow_brute_force": "T1110 (Credential Access)",
-            "workflow_sql_injection": "T1190 (Exploit Public-Facing Application)",
-            "workflow_credential_stuffing": "T1110.004 (Credential Stuffing)",
-            "workflow_apt_mitigation": "TA0008 (Lateral Movement)",
-            "workflow_insider_threat": "TA0010 (Exfiltration)"
-        }
-        
-        self.dwell_time = 0
-        self.investigation_count = 0
+        self.red_team_client = None
+        api_key = os.getenv("GROQ_API_KEY") or os.getenv("HF_TOKEN")
+        if api_key:
+            self.red_team_client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=api_key)
+
+        self.critical_asset_ip = "10.0.1.5"
+        self._internal_state = SecurityState(episode_id=str(uuid.uuid4()))
 
     def reset(self, seed: Optional[int] = None, **kwargs: Any) -> SecurityObservation:
         if seed is not None: random.seed(seed)
-        self.current_step = 0
-        self.dwell_time = 0
-        self.investigation_count = 0
-        self.blocked_ips = set()
-        self.is_attack_active = True
-        self.health = 1.0
         
-        if self.task_id == "workflow_credential_stuffing":
-            self.attackers = [f"192.168.1.{random.randint(10, 99)}" for _ in range(3)]
-        elif self.task_id == "workflow_insider_threat":
-            self.attackers = [f"10.0.1.{random.randint(10, 99)}"]
-        else:
-            self.attackers = [f"192.168.1.{random.randint(100, 254)}"]
+        self._internal_state = SecurityState(
+            episode_id=str(uuid.uuid4()), 
+            is_under_attack=True,
+            attacker_ips=[f"192.168.1.{random.randint(10, 99)}", f"192.168.1.{random.randint(100, 254)}"],
+            infrastructure_health=1.0,
+            dwell_time=0,
+            logs_unlocked=False,
+            drift_active=False
+        )
+        # PILLAR: Randomized Benign Noise (Prevent Memorization)
+        self.benign_ips = [f"10.0.{random.randint(0, 5)}.{random.randint(10, 254)}" for _ in range(3)]
+        self.blocked_ips = set()
 
         obs = self._get_observation()
         obs.reward = 0.01 
         return obs
 
-    def step(self, action: SecurityAction) -> SecurityObservation:
-        self.current_step += 1
-        inspections = []
-        targets = [t.strip().strip(",") for t in str(action.target).replace(",", " ").split() if t.strip()] if action.target else []
+    def query_logs(self, subnet: str) -> str:
+        self._internal_state.logs_unlocked = True
+        return f"SUCCESS: Subnet logs unlocked."
 
-        # PILLAR 3: Investigation Cost
-        if action.action_type == ActionType.INSPECT_IP:
-            self.investigation_count += 1
-            for t in targets:
-                if t in self.attackers: inspections.append(f"MITRE {self.mitre_map[self.task_id]}: MALICIOUS.")
-                else: inspections.append(f"CLEAN: {t} is BENIGN.")
+    def block_ip(self, target_ip: str) -> str:
+        if not self._internal_state.logs_unlocked:
+            return "ERROR 403: Protocol Violation. Call query_logs first."
+        if not target_ip:
+            return "ERROR 400: 'target' IP address is required."
 
-        if action.action_type == ActionType.BLOCK_IP:
-            for t in targets: self.blocked_ips.add(t)
-
-        # PILLAR 2: Dwell Time Logic
-        if self.is_attack_active:
-            active_threats = [a for a in self.attackers if a not in self.blocked_ips]
-            if active_threats:
-                self.dwell_time += 1
-                # Non-linear damage: Gets more dangerous over time
-                damage = 0.015 * len(active_threats) * (1 + (self.dwell_time * 0.1))
-                self.health -= damage
+        targets = [t.strip() for t in target_ip.replace(",", " ").split() if t.strip()]
+        results = []
+        for t in targets:
+            self.blocked_ips.add(t)
+            if t in self._internal_state.attacker_ips:
+                results.append(f"SUCCESS: {t} blocked.")
             else:
-                self.is_attack_active = False 
+                results.append(f"INFO: {t} blocked (Benign).")
+        return " | ".join(results)
 
-        reward = self._calculate_reward(action, targets)
-        done = self.current_step >= self.max_steps or not self.is_attack_active or self.health <= 0
+    def step(self, action: SecurityAction) -> SecurityObservation:
+        self._internal_state.step_count += 1
         
-        obs = self._get_observation()
-        obs.reward = float(max(0.01, min(0.99, reward)))
+        result_msg = ""
+        reward = 0.01
+        
+        try:
+            if action.action_type == ActionType.QUERY_LOGS:
+                result_msg = self.query_logs(action.target or "all")
+                reward = 0.2
+            elif action.action_type == ActionType.BLOCK_IP:
+                result_msg = self.block_ip(action.target or "")
+                reward = 0.99 if "SUCCESS" in result_msg else 0.05
+            elif action.action_type == ActionType.INSPECT_IP:
+                reward = 0.15
+        except:
+            reward = 0.01
+
+        # Red Team and Damage
+        active = [a for a in self._internal_state.attacker_ips if a not in self.blocked_ips]
+        if active: self._internal_state.infrastructure_health -= (0.02 * len(active))
+        
+        all_blocked = all(a in self.blocked_ips for a in self._internal_state.attacker_ips)
+        done = self._internal_state.step_count >= self.max_steps or all_blocked or self._internal_state.infrastructure_health <= 0
+
+        obs = self._get_observation(reward=reward, feedback=result_msg)
         obs.done = done
-        obs.inspection_result = " | ".join(inspections) if inspections else None
+        if self._internal_state.logs_unlocked: obs.queried_logs = self._generate_adversarial_logs()
         return obs
 
-    @property
     def state(self) -> SecurityState:
-        return SecurityState(
-            episode_id="benchmark_run",
-            step_count=self.current_step,
-            is_under_attack=self.is_attack_active,
-            attacker_ips=self.attackers,
-            infrastructure_health=max(0.0, self.health),
-            threat_level=self.mitre_map.get(self.task_id, "Unknown")
+        return self._internal_state
+
+    def _get_observation(self, reward: float = 0.01, feedback: str = None) -> SecurityObservation:
+        return SecurityObservation(
+            alert_text="SIEM Alert: Suspicious activity detected in segment-01.",
+            error_context=feedback,
+            system_load=1.0 - max(0.0, self._internal_state.infrastructure_health),
+            blocked_ips=list(self.blocked_ips),
+            confidence=0.5,
+            reward=float(max(0.01, min(0.99, reward))),
+            done=False
         )
 
-    def _get_observation(self) -> SecurityObservation:
-        new_logs = []
-        for _ in range(25):
-            rand = random.random()
-            if rand < 0.15 and self.is_attack_active:
-                source_ip = random.choice([a for a in self.attackers if a not in self.blocked_ips] or self.attackers)
-                message = f"Alert: Potential {self.mitre_map[self.task_id]} behavior."
-            else:
-                source_ip = f"10.0.5.{random.randint(1, 255)}"
-                message = "Heartbeat: Node operational."
-
-            new_logs.append(LogEntry(timestamp=str(time.time()), source_ip=source_ip, destination_ip="10.0.0.1", port=80, protocol="TCP", message=message))
-        return SecurityObservation(new_logs=new_logs, blocked_ips=list(self.blocked_ips), system_load=1.0-max(0.0, self.health), metrics={"health": float(self.health), "dwell_time": float(self.dwell_time)}, reward=0.01, done=False)
-
-    def _calculate_reward(self, action: SecurityAction, targets: List[str]) -> float:
-        # COST: Every inspection costs -0.02
-        if action.action_type == ActionType.INSPECT_IP:
-            return 0.18 # (+0.2 base - 0.02 cost)
+    def _generate_adversarial_logs(self) -> List[LogEntry]:
+        logs = []
+        key = "src" if not self._internal_state.drift_active else "origin_addr"
+        
+        # PILLAR: Dynamic Benign Noise
+        for ip in self.benign_ips:
+            logs.append(LogEntry(timestamp=str(time.time()), source_ip=ip, destination_ip="10.0.0.1", port=443, protocol="TCP", message=f"[{key}] normal traffic"))
             
-        for t in targets:
-            if action.action_type == ActionType.BLOCK_IP and t.startswith("10.0.") and t not in self.attackers:
-                return 0.01 # Penalty for FP
-                
-        hit_count = len([t for t in targets if t in self.attackers])
-        if action.action_type == ActionType.BLOCK_IP and hit_count > 0:
-            # DWELL BONUS: High reward for catching them fast
-            dwell_multiplier = max(0.5, 1.0 - (self.dwell_time * 0.05))
-            return 0.99 * (hit_count / len(self.attackers)) * dwell_multiplier
-            
-        return 0.01
+        # PILLAR: Actual Threat
+        active_threats = [a for a in self._internal_state.attacker_ips if a not in self.blocked_ips]
+        if active_threats:
+            logs.append(LogEntry(timestamp=str(time.time()), source_ip=random.choice(active_threats), destination_ip="10.0.0.1", port=80, protocol="TCP", message=f"[{key}] suspicious activity detected"))
+        
+        random.shuffle(logs)
+        return logs
 
     def grade(self) -> float:
-        # Grade = Health adjusted by efficiency (dwell and inspection cost)
-        efficiency = max(0.5, 1.0 - (self.dwell_time * 0.02) - (self.investigation_count * 0.01))
-        final_grade = self.health * efficiency
-        return float(max(0.01, min(0.99, final_grade)))
+        if not self._internal_state.attacker_ips: return 0.01
+        blocked_count = len([a for a in self._internal_state.attacker_ips if a in self.blocked_ips])
+        raw_score = (0.6 * (blocked_count / len(self._internal_state.attacker_ips))) + (0.4 * max(0.0, self._internal_state.infrastructure_health))
+        return float(max(0.01, min(0.99, raw_score)))

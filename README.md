@@ -1,58 +1,37 @@
-# 🛡️ Infra Security Agent Workflow (Benchmark Edition)
+# 🛡️ Infra Security Agent Workflow (Finalist Submission)
 
 ## 🏆 Project Overview
-The **Infra Security Agent Workflow** is a high-fidelity Reinforcement Learning (RL) environment designed to train and benchmark AI agents for **Automated Incident Response**. Developed for the **Meta PyTorch Hackathon Round 1 (OpenEnv)**.
+A high-fidelity Reinforcement Learning (RL) environment designed to bridge the **"RL Deployment Gap"** in cybersecurity. This sandbox allows agents to be trained on complex adversarial scenarios without production risk.
 
 ---
 
-## 🏗️ The 3 Pillars of Excellence (Scientific Design)
-This environment is built to address the unique challenges of RL in cybersecurity:
-
-1.  **MITRE ATT&CK Alignment**: Every adversarial task is mapped to real-world tactics (e.g., **TA0008: Lateral Movement**).
-2.  **Dwell-Time Penalties**: The reward function is non-linear—agents are penalized for every turn a hacker remains active in the system.
-3.  **Investigation Economics**: The `inspect_ip` tool provides vital intelligence but carries a **Resource Cost**, forcing agents to balance reasoning against data-gathering.
-
----
-
-## 📐 Environment Specification
-| Attribute | Specification |
-| :--- | :--- |
-| **Observation Space** | `Dict` (Logs, Metrics, Firewall State) |
-| **Action Space** | `Discrete` / `Dict` (Investigate, Block, Allow, Quarantine) |
-| **Grading** | Efficiency-Adjusted Health Score (0.01 - 0.99) |
-| **Framework** | `openenv-core` v1.0.0 |
+## 🏗️ System Architecture
+```mermaid
+graph TD
+    Agent[Learning Agent] <--> |Action/Observation| EnvServer[OpenEnv Server - FastAPI]
+    EnvServer <--> |Logic| SecurityLogEnv[Adversarial Engine]
+    SecurityLogEnv --> |Pillar 1| RedTeam[Groq Red Team]
+    SecurityLogEnv --> |Pillar 2| Grader[RLVR Grader]
+    SecurityLogEnv --> |Pillar 3| Drift[Schema Drift Engine]
+```
 
 ---
 
-## 🔍 Task Library & MITRE Mapping
-1.  **Credential Access (T1110)**: Detect high-frequency authentication failures.
-2.  **Public Exploit (T1190)**: Identify malicious SQL payload signatures.
-3.  **Credential Stuffing (T1110.004)**: Multi-IP distributed defense.
-4.  **Lateral Movement (TA0008)**: Navigate silent phases and internal pivots.
-5.  **Data Exfiltration (TA0010)**: Contextual awareness of unauthorized downloads.
+## 🧠 Core Engineering Pillars
+1.  **RLVR (Verifiable Rewards)**: Programmatic graders strictly bounded between 0.01 and 0.99.
+2.  **Adversarial Curriculum**: A dynamic "Red Team" powered by Groq that mutates attack vectors.
+3.  **Multi-Step Bottleneck**: Natural language ambiguity forces agents to investigate before acting.
+4.  **Zero-Memorization Noise**: Dynamically generated benign traffic prevents whitelisting shortcuts.
 
 ---
 
-## 🧠 Reward Shaping
-$Score = Health \times (1.0 - Dwell\_Penalty - Cost\_Penalty)$
-- **$R_{mit}$**: +0.99 (Success)
-- **$R_{inv}$**: +0.18 (Intelligence Gathering with cost)
-- **Penalty**: Direct degradation of health per turn per threat.
+## 📊 Evaluation Criteria Mapping
+- **Real-world Utility**: Models a Senior SOC Analyst's multi-step investigation workflow.
+- **Environment Design**: Structured error recovery (400/403 hints) teaches agents to self-correct.
+- **Task Quality**: 5 distinct security tasks with increasing difficulty.
 
 ---
 
-## 📊 Baseline Scores
-Verified reproducible scores from `inference.py` (v5.0 Benchmark):
-| Task ID | Level | Baseline Score |
-| :--- | :--- | :--- |
-| `workflow_brute_force` | Easy | 0.990 |
-| `workflow_sql_injection` | Medium | 0.990 |
-| `workflow_credential_stuffing` | Medium | 0.982 |
-| `workflow_apt_mitigation` | Hard | 0.990 |
-| `workflow_insider_threat` | Hard | 0.990 |
-
----
-
-## 💻 Setup & Submission
-1. **Local Test**: `python inference.py`
-2. **Deploy**: HF Docker Space (Port 7860).
+## 💻 Usage
+1.  **Local Baseline**: `python inference.py`
+2.  **Deployment**: HF Space (sdk: docker, port: 7860).

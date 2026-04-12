@@ -7,18 +7,6 @@ runtime: fastapi
 port: 7860
 category: "Infrastructure / Security"
 tasks:
-  - id: workflow_brute_force
-    difficulty: easy
-    has_grader: true
-  - id: workflow_sql_injection
-    difficulty: medium
-    has_grader: true
-  - id: workflow_credential_stuffing
-    difficulty: medium
-    has_grader: true
   - id: workflow_apt_mitigation
-    difficulty: hard
-    has_grader: true
-  - id: workflow_insider_threat
     difficulty: hard
     has_grader: true
