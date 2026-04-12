@@ -27,3 +27,6 @@ op/
 # OS Files
 .DS_Store
 Thumbs.db
+
+train_grpo.py
+

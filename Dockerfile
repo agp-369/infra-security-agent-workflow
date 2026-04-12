@@ -9,11 +9,11 @@ COPY . /app
 # 2. Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 3. Set Python path so it finds our 'env' folder
+# 3. Set Python path
 ENV PYTHONPATH=/app
 
 # 4. HF Mandatory Port
 EXPOSE 7860
 
 # 5. Launch standardized server
-CMD ["uvicorn", "env.app:app", "--host", "0.0.0.0", "--port", "7860"]
+CMD ["uvicorn", "env.server.app:app", "--host", "0.0.0.0", "--port", "7860"]

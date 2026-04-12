@@ -18,8 +18,7 @@ dependencies = [
 ]
 
 [tool.setuptools]
-package_dir = {"" = "src"}
-packages = ["infra_security_agent", "infra_security_agent.server"]
+packages = ["env", "env.server"]
 
 [project.scripts]
-server = "infra_security_agent.server.app:main"
+server = "env.server.app:main"
