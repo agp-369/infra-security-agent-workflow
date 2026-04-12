@@ -4,11 +4,13 @@ import uvicorn
 from fastapi import FastAPI, Body, HTTPException
 from pydantic import BaseModel
 
-# Ensure the 'env' directory is in the path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Ensure the root directory is in the path
+root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if root_dir not in sys.path:
+    sys.path.append(root_dir)
 
-from security_env import SecurityLogEnv
-from models import SecurityAction, SecurityObservation, SecurityState
+from env.security_env import SecurityLogEnv
+from env.models import SecurityAction, SecurityObservation, SecurityState
 from openenv.core.env_server.types import ResetResponse, StepResponse, ResetRequest
 
 app = FastAPI(title="Infra Security Agent")
