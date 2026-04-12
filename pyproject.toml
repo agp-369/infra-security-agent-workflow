@@ -21,11 +21,8 @@ dependencies = [
 ]
 
 [project.scripts]
-server = "infra_security_agent.server.app:main"
-
-[project.entry-points."openenv.environments"]
-infra-security-agent = "infra_security_agent.server.environment:SecurityLogEnv"
+server = "env.app:main"
 
 [tool.setuptools]
-package_dir = {"" = "src"}
-packages = ["infra_security_agent", "infra_security_agent.server"]
+packages = ["env"]
+py_modules = ["inference"]

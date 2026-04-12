@@ -11,16 +11,18 @@ from env.models import SecurityAction, ActionType
 
 load_dotenv()
 
-# --- CONFIGURATION (Strict Meta Sample Sync) ---
+# --- CONFIGURATION (Meta Hackathon Mandatory) ---
 API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
 API_BASE_URL = os.getenv("API_BASE_URL", "https://api.groq.com/openai/v1") 
 MODEL_NAME = os.getenv("MODEL_NAME", "llama-3.1-8b-instant") 
+
+# Benchmark Settings
 BENCHMARK = "infra-security-agent"
 SUCCESS_THRESHOLD = 0.5
 
-# --- LOGGING ---
-def log_start(task: str, model: str) -> None:
-    print(f"[START] task={task} model={model}", flush=True)
+# --- LOGGING UTILS ---
+def log_start(task: str, env: str, model: str) -> None:
+    print(f"[START] task={task} env={env} model={model}", flush=True)
 
 def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
     print(f"[STEP] step={step} action={action} reward={reward:.2f} done={str(done).lower()} error={error if error else 'null'}", flush=True)
@@ -36,7 +38,6 @@ def repair_json(text: str) -> dict:
         val = str(data.get("action_type", "")).lower()
         if "block" in val: data["action_type"] = "block_ip"
         elif "query" in val: data["action_type"] = "query_logs"
-        elif "inspect" in val: data["action_type"] = "inspect_ip"
         elif "noop" in val: data["action_type"] = "noop"
         return data
     except:
@@ -44,7 +45,7 @@ def repair_json(text: str) -> dict:
 
 def run_task(client, task_id):
     env = SecurityLogEnv(task_id=task_id)
-    log_start(task=task_id, model=MODEL_NAME)
+    log_start(task=task_id, env=BENCHMARK, model=MODEL_NAME)
     
     obs = env.reset()
     done = False
@@ -52,18 +53,16 @@ def run_task(client, task_id):
     steps = 0
     history_text: List[str] = []
 
-    # THE EXPERT SYSTEM PROMPT
+    # THE EXPERT REASONING PROMPT
     SYSTEM_PROMPT = textwrap.dedent(
         """
-        You are a SOC Analyst in a multi-step RL environment. 
-        MISSION: Mitigate threats while protecting infrastructure health.
+        You are a SOC Analyst. MISSION: Mitigate threats while protecting health.
         
         PROTOCOL:
         1. Alerts are ambiguous. You MUST call 'query_logs' to reveal attacker IPs.
-        2. Once IPs are revealed in 'queried_logs', investigate or block them.
-        3. If you get a 'Protocol Violation' error, it means you forgot to query logs first.
+        2. Once IPs are revealed, use 'block_ip' on the malicious IP.
+        3. Avoid blocking internal assets (10.0.1.5).
         4. Reply with exactly one JSON object: {"action_type": "...", "target": "...", "reason": "..."}
-        Valid actions: query_logs, block_ip, inspect_ip, noop.
         """
     ).strip()
 
@@ -76,11 +75,10 @@ def run_task(client, task_id):
                 f"""
                 ### STEP {step}/20
                 ALERT: {obs.alert_text}
-                ENVIRONMENT FEEDBACK: {obs.inspection_result or 'None'}
+                FEEDBACK: {obs.error_context or 'None'}
                 REVEALED LOGS: {obs.queried_logs if obs.queried_logs else 'None'}
-                HISTORY: {", ".join(history_text[-3:]) if history_text else "None"}
                 
-                Identify the threat and execute your next tool call.
+                Execute your next security action.
                 """
             ).strip()
 
@@ -92,9 +90,9 @@ def run_task(client, task_id):
                 )
                 action_data = repair_json(completion.choices[0].message.content)
             else:
-                # MOCK MULTI-STEP REASONING
+                # Mock Logic for Baseline
                 if not obs.queried_logs:
-                    action_data = {"action_type": "query_logs", "target": "segment-01"}
+                    action_data = {"action_type": "query_logs", "target": "all"}
                 else:
                     action_data = {"action_type": "block_ip", "target": obs.queried_logs[0].source_ip}
 
@@ -103,17 +101,17 @@ def run_task(client, task_id):
             
             rewards.append(float(obs.reward))
             done = obs.done
-            log_step(step=step, action=action.action_type, reward=obs.reward, done=obs.done, error=obs.inspection_result if "ERROR" in str(obs.inspection_result) else None)
-            history_text.append(f"{action.action_type}")
+            log_step(step=step, action=action.action_type, reward=obs.reward, done=done, error=obs.error_context if "ERROR" in str(obs.error_context) else None)
 
-        log_end(success=(env.grade() > 0.5), steps=steps, score=env.grade(), rewards=rewards)
+        score = env.grade()
+        log_end(success=(score >= SUCCESS_THRESHOLD), steps=steps, score=score, rewards=rewards)
     except Exception as e:
         log_end(success=False, steps=steps, score=0.01, rewards=[0.01])
 
 def main():
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY or "mock_key")
-    # Running the most complex task for the baseline proof
-    run_task(client, "workflow_apt_mitigation")
+    # Demonstrate on the hardest task
+    run_task(client, "workflow_insider_threat")
 
 if __name__ == "__main__":
     main()

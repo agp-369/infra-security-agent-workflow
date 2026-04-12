@@ -28,7 +28,7 @@ class SecurityAction(Action):
 
 class SecurityObservation(Observation):
     # NATURAL LANGUAGE AMBIGUITY: The primary signal
-    alert_text: str = Field(..., description="Ambiguous natural language alert from SIEM.")
+    alert_text: str = Field(..., description="Ambiguous natural language alert.")
     
     # ACTIONABLE ERROR RECOVERY: Specific hints for the agent
     error_context: Optional[str] = Field(None, description="Feedback for malformed or unauthorized actions.")
@@ -40,6 +40,9 @@ class SecurityObservation(Observation):
     
     # REVEALED DATA (Only populated after QUERY_LOGS)
     queried_logs: List[LogEntry] = Field(default_factory=list)
+    
+    # METRICS for RL training
+    metrics: Dict[str, float] = Field(default_factory=dict)
 
 class SecurityState(State):
     """The 'Hidden Truth' - Never visible to the agent."""
@@ -49,4 +52,3 @@ class SecurityState(State):
     infrastructure_health: float = 1.0
     dwell_time: int = 0
     logs_unlocked: bool = False
-    drift_active: bool = False
