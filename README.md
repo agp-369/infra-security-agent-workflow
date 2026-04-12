@@ -1,3 +1,15 @@
+---
+title: Infra Security Agent Workflow
+emoji: 🛡️
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+tags:
+  - openenv
+---
+
 # 🛡️ Infra-Security-Agent Workflow
 **A High-Fidelity, Adversarial OpenEnv Sandbox for Training Autonomous SOC Analysts via GRPO.**
 
@@ -16,7 +28,7 @@ Our environment separates the learning agent from the dynamic world state:
 ```mermaid
 graph TD
     Agent[Blue Team: Qwen2.5-0.5B] <--> |Action/Observation| EnvServer[OpenEnv FastAPI Server]
-    EnvServer <--> |Logic| SecurityLogEnv[Adversarial Engine]
+    EnvServer <--> |Logic| SecurityLogEnv[Adversarial Logic]
     SecurityLogEnv --> |Adversary| RedTeam[Groq Red Team]
     SecurityLogEnv --> |Verifier| RLVR[RLVR Grader]
     SecurityLogEnv --> |Drift| Drift[Schema Drift Engine]

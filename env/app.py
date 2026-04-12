@@ -4,11 +4,13 @@ import uvicorn
 from fastapi import FastAPI, Body, HTTPException
 from pydantic import BaseModel
 
-# Ensure the root directory is in the path
+# --- DOCKER COMPATIBILITY ---
+# Ensure the project root is in the path
 root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if root_dir not in sys.path:
     sys.path.append(root_dir)
 
+# Absolute imports match the package structure
 from env.security_env import SecurityLogEnv
 from env.models import SecurityAction, SecurityObservation, SecurityState
 from openenv.core.env_server.types import ResetResponse, StepResponse, ResetRequest
@@ -30,6 +32,9 @@ def health():
 @app.post("/reset", response_model=ResetResponse)
 def reset(request: ResetRequest = Body(default_factory=ResetRequest)):
     try:
+        # Task ID extraction
+        if hasattr(request, "task_id") and request.task_id: 
+            env.task_id = request.task_id
         obs = env.reset()
         return ResetResponse(observation=obs.model_dump(), reward=obs.reward, done=obs.done)
     except Exception as e:
@@ -45,9 +50,10 @@ def step(request: ActionRequest):
 
 @app.get("/state", response_model=SecurityState)
 def get_state():
-    return env.state()
+    return env.state
 
 def main():
+    # MANDATORY PORT 7860 for Hugging Face
     uvicorn.run(app, host="0.0.0.0", port=7860)
 
 if __name__ == "__main__":
