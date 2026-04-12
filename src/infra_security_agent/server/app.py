@@ -1,11 +1,19 @@
 import sys
 import os
 import uvicorn
-from fastapi import FastAPI, Body
+from fastapi import FastAPI, Body, HTTPException
 from pydantic import BaseModel
 
-# Ensure the 'src' directory is in the path for internal imports
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# --- DOCKER COMPATIBLE IMPORTS ---
+# Ensure 'src' is in path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+src_dir = os.path.dirname(current_dir)
+if src_dir not in sys.path:
+    sys.path.append(src_dir)
+
+# Flat root fallback for Docker
+if "/app/src" not in sys.path:
+    sys.path.append("/app/src")
 
 from infra_security_agent.server.environment import SecurityLogEnv
 from infra_security_agent.models import SecurityAction, SecurityObservation, SecurityState
@@ -19,23 +27,34 @@ class ActionRequest(BaseModel):
 
 @app.get("/")
 def read_root():
-    return {"status": "healthy"}
+    return {"status": "healthy", "service": "InfraSecurityAgent"}
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
 
 @app.post("/reset", response_model=ResetResponse)
 def reset(request: ResetRequest = Body(default_factory=ResetRequest)):
-    obs = env.reset()
-    return ResetResponse(observation=obs.model_dump(), reward=obs.reward, done=obs.done)
+    try:
+        obs = env.reset()
+        return ResetResponse(observation=obs.model_dump(), reward=obs.reward, done=obs.done)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/step", response_model=StepResponse)
 def step(request: ActionRequest):
-    obs = env.step(request.action)
-    return StepResponse(observation=obs.model_dump(), reward=obs.reward, done=obs.done)
+    try:
+        obs = env.step(request.action)
+        return StepResponse(observation=obs.model_dump(), reward=obs.reward, done=obs.done)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/state", response_model=SecurityState)
 def get_state():
     return env.state
 
 def main():
+    # MANDATORY PORT 7860
     uvicorn.run(app, host="0.0.0.0", port=7860)
 
 if __name__ == "__main__":

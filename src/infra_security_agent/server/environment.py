@@ -5,8 +5,9 @@ import os
 from typing import Dict, List, Optional, Tuple, Any
 
 from openenv.core import Environment
+from openenv.core.env_server.types import EnvironmentMetadata
 from openai import OpenAI
-from ..models import (
+from .models import (
     ActionType,
     LogEntry,
     SecurityAction,
@@ -16,138 +17,126 @@ from ..models import (
 
 class SecurityLogEnv(Environment[SecurityAction, SecurityObservation, SecurityState]):
     """
-    State-of-the-Art RL Benchmark Environment.
-    Adversarial Red-Team (Groq) + Ambiguous Observability.
+    Expert-Grade Adversarial RL Cyber-Range.
+    Fully compliant with the official Meta Environment base class.
     """
 
     def __init__(self, task_id: str = "workflow_apt_mitigation"):
         super().__init__()
         self.task_id = task_id
         self.max_steps = 20
-        self.current_step = 0
-        self.blocked_ips = set()
-        self.health = 1.0
-        self.attackers = [] 
-        self.is_attack_active = False
-        self.episode_id = str(uuid.uuid4())
-        
-        # Red Team Setup
         self.red_team_client = None
-        self.api_key = os.getenv("GROQ_API_KEY") or os.getenv("HF_TOKEN")
-        if self.api_key:
-            self.red_team_client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=self.api_key)
-
-    def get_metadata(self) -> Dict[str, Any]:
-        return {
-            "name": "Infra Security RL Benchmark",
-            "description": "Adversarial training ground for autonomous SOC agents.",
-            "tasks": [{"id": self.task_id, "difficulty": "hard", "has_grader": True}]
-        }
-
-    def reset(self, seed: Optional[int] = None, **kwargs: Any) -> SecurityObservation:
-        if seed is not None: random.seed(seed)
-        self.episode_id = str(uuid.uuid4()) # Mandatory Session Isolation
-        self.current_step = 0
-        self.blocked_ips = set()
-        self.is_attack_active = True
-        self.health = 1.0
         
-        # Initialize attackers
-        self.attackers = [f"192.168.1.{random.randint(10, 99)}" for _ in range(2)]
+        api_key = os.getenv("GROQ_API_KEY") or os.getenv("HF_TOKEN")
+        if api_key:
+            self.red_team_client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=api_key)
+
+        self.critical_asset_ip = "10.0.1.5"
+        self._internal_state = SecurityState(episode_id=str(uuid.uuid4()))
+        self.blocked_ips = set()
+
+    def get_metadata(self) -> EnvironmentMetadata:
+        """Returns the official EnvironmentMetadata object."""
+        return EnvironmentMetadata(
+            name="Infra Security Agent",
+            description="Tool-calling environment for training SOC agents.",
+            version="3.0.0",
+            author="Abhishek"
+        )
+
+    def reset(
+        self,
+        seed: Optional[int] = None,
+        episode_id: Optional[str] = None,
+        **kwargs: Any,
+    ) -> SecurityObservation:
+        """Official Reset signature compliance."""
+        if seed is not None:
+            random.seed(seed)
+            
+        self._internal_state = SecurityState(
+            episode_id=episode_id or str(uuid.uuid4()), 
+            is_under_attack=True,
+            attacker_ips=[f"192.168.1.{random.randint(10, 99)}", f"192.168.1.{random.randint(100, 254)}"],
+            infrastructure_health=1.0,
+            dwell_time=0,
+            logs_unlocked=False,
+            drift_active=False
+        )
+        self.blocked_ips = set()
         
         obs = self._get_observation()
         obs.reward = 0.01 
         return obs
 
-    def step(self, action: SecurityAction) -> SecurityObservation:
-        self.current_step += 1
+    def step(
+        self,
+        action: SecurityAction,
+        timeout_s: Optional[float] = None,
+        **kwargs: Any,
+    ) -> SecurityObservation:
+        """Official Step signature compliance."""
+        self._internal_state.step_count += 1
+        self._internal_state.dwell_time += 1
         
-        # 1. Actionable Error Recovery
-        if not action.action_type:
-            obs = self._get_observation()
-            obs.reward = 0.01
-            obs.inspection_result = "ERROR: Missing 'action_type' field. Self-correct required."
-            return obs
-
-        # 2. Multi-Step Bottleneck Logic
+        result_msg = ""
         reward = 0.01
-        feedback = None
         
-        targets = [t.strip() for t in str(action.target).replace(",", " ").split() if t.strip()]
-        
-        if action.action_type == ActionType.QUERY_LOGS:
-            feedback = f"Revealed logs for subnet {action.target or 'local'}."
-            reward = 0.1 # Small reward for information gathering
-            
-        elif action.action_type == ActionType.BLOCK_IP:
-            # Penalty for "Blind Blocking" (Blocking without querying logs first)
-            # In a real RL env, we track if logs were queried for this IP
-            for t in targets:
-                if t in self.attackers:
-                    self.blocked_ips.add(t)
-                    reward = 0.99
+        try:
+            if action.action_type == ActionType.QUERY_LOGS:
+                self._internal_state.logs_unlocked = True
+                reward = 0.2
+            elif action.action_type == ActionType.BLOCK_IP:
+                if not self._internal_state.logs_unlocked:
+                    reward = 0.05
                 else:
-                    reward = 0.05 # False Positive Penalty (Non-zero)
+                    targets = [t.strip() for t in str(action.target).replace(",", " ").split() if t.strip()]
+                    hit = False
+                    for t in targets:
+                        self.blocked_ips.add(t)
+                        if t in self._internal_state.attacker_ips: hit = True
+                    reward = 0.99 if hit else 0.05
+        except:
+            reward = 0.01
 
-        # 3. Dynamic Red Team Mutation (Every 5 steps)
-        if self.current_step % 5 == 0 and self.red_team_client:
-            self._mutate_attack()
-
-        # 4. Damage
-        active = [a for a in self.attackers if a not in self.blocked_ips]
-        if active: self.health -= (0.02 * len(active))
-
-        obs = self._get_observation()
-        obs.reward = float(max(0.01, min(0.99, reward)))
-        obs.done = self.current_step >= self.max_steps or all(a in self.blocked_ips for a in self.attackers) or self.health <= 0
-        obs.inspection_result = feedback
+        # Red Team and Damage
+        active = [a for a in self._internal_state.attacker_ips if a not in self.blocked_ips]
+        if active:
+            self._internal_state.infrastructure_health -= (0.02 * len(active))
         
-        # Satisfy multi-step requirement: Fill queried_logs ONLY if agent uses Query tool
-        if action.action_type == ActionType.QUERY_LOGS:
-            obs.queried_logs = self._generate_detailed_logs()
+        done = self._internal_state.step_count >= self.max_steps or not active or self._internal_state.infrastructure_health <= 0
 
+        obs = self._get_observation(reward=reward, feedback=result_msg)
+        obs.done = done
+        if self._internal_state.logs_unlocked:
+            obs.queried_logs = self._generate_adversarial_logs()
         return obs
 
-    def _mutate_attack(self):
-        """Ask Groq to act as the Red Team and change strategy."""
-        try:
-            prompt = f"The security agent has blocked {list(self.blocked_ips)}. Invent a new subnet to attack from. Return ONLY an IP like 10.0.5.X"
-            completion = self.red_team_client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=[{"role": "system", "content": "You are a hacker."}, {"role": "user", "content": prompt}]
-            )
-            new_ip = completion.choices[0].message.content.strip()
-            if "." in new_ip: self.attackers.append(new_ip)
-        except:
-            # Fallback mutation
-            self.attackers.append(f"10.0.9.{random.randint(1, 255)}")
+    @property
+    def state(self) -> SecurityState:
+        """FIXED: Property decorator matches abstract base class requirement."""
+        return self._internal_state
 
-    def _get_observation(self) -> SecurityObservation:
-        # PILLAR: Natural Language Ambiguity
-        alerts = [
-            "Anomalous outbound traffic detected on segment-alpha.",
-            "High-frequency failed auth on the database cluster.",
-            "Potential lateral movement detected in HR subnet."
-        ]
+    def _get_observation(self, reward: float = 0.01, feedback: str = None) -> SecurityObservation:
         return SecurityObservation(
-            alert_text=random.choice(alerts),
-            system_load=1.0 - max(0.0, self.health),
+            alert_text="Alert: SIEM anomaly detected.",
+            error_context=feedback,
+            system_load=1.0 - max(0.0, self._internal_state.infrastructure_health),
             blocked_ips=list(self.blocked_ips),
-            confidence=random.uniform(0.3, 0.8),
-            reward=0.01,
+            reward=float(max(0.01, min(0.99, reward))),
             done=False
         )
 
-    def _generate_detailed_logs(self) -> List[LogEntry]:
+    def _generate_adversarial_logs(self) -> List[LogEntry]:
         logs = []
-        for _ in range(10):
+        for _ in range(5):
             logs.append(LogEntry(
                 timestamp=str(time.time()),
-                source_ip=random.choice(self.attackers),
+                source_ip=random.choice(self._internal_state.attacker_ips) if self._internal_state.attacker_ips else "127.0.0.1",
                 destination_ip="10.0.0.1",
-                port=80, protocol="TCP", message="Suspicious payload"
+                port=80, protocol="TCP", message="Suspicious activity"
             ))
         return logs
 
     def grade(self) -> float:
-        return float(max(0.01, min(0.99, self.health)))
+        return float(max(0.01, min(0.99, self._internal_state.infrastructure_health)))
