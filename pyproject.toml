@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "infra-security-agent"
 version = "1.0.0"
-description = "Adversarial RL Cyber-Range for SOC Analyst Training."
+description = "Professional Adversarial RL Cyber-Range for SOC Analyst Training."
 requires-python = ">=3.10"
 dependencies = [
     "openenv-core[core]>=0.2.0",
@@ -17,8 +17,11 @@ dependencies = [
     "requests"
 ]
 
-[tool.setuptools]
-packages = ["env", "env.server"]
-
 [project.scripts]
-server = "env.server.app:main"
+server = "env.app:main"
+
+[project.entry-points."openenv.environments"]
+infra-security-agent = "env.security_env:SecurityLogEnv"
+
+[tool.setuptools]
+packages = ["env"]
